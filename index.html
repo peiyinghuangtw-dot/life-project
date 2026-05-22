@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Life Project">
@@ -304,9 +304,33 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
 .modal-day-header{display:flex;align-items:center;justify-content:space-between;
   padding:18px 20px 14px;border-bottom:1px solid var(--app-border);flex-shrink:0}
 .modal-day-body{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 20px 16px;flex:1}
-.modal{background:var(--app-surface);border-radius:var(--br2) var(--br2) 0 0;border:1px solid var(--app-border);
-  padding:24px;width:100%;max-width:520px;max-height:90dvh;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.1)}
-@media(min-width:600px){.modal{border-radius:var(--br2)}}
+.modal{
+  background:var(--app-surface);border-radius:var(--br2) var(--br2) 0 0;
+  border:1px solid var(--app-border);
+  width:100%;max-width:520px;
+  max-height:calc(92dvh - env(safe-area-inset-bottom,0px));
+  display:flex;flex-direction:column;
+  box-shadow:0 -4px 24px rgba(0,0,0,.1);
+  overflow:hidden;
+}
+/* 捲動區：標題 + 表單 */
+.modal-scroll{
+  overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding:24px 24px 0;
+  flex:1;
+}
+/* 按鈕列固定在底部，不跟著捲 */
+.modal-actions{
+  display:flex;gap:8px;justify-content:flex-end;
+  padding:14px 24px calc(14px + env(safe-area-inset-bottom,20px));
+  flex-shrink:0;
+  border-top:1px solid var(--app-border);
+  background:var(--app-surface);
+}
+@media(min-width:600px){
+  .modal{border-radius:var(--br2);max-height:90dvh}
+  .modal-actions{padding:14px 24px}
+}
 .modal h3{font-size:var(--fs-base);font-weight:600;margin-bottom:18px;color:var(--app-text)}
 .form-group{margin-bottom:14px}
 .form-group label{display:block;font-size:var(--fs-xs);font-weight:500;color:var(--app-text2);margin-bottom:6px;letter-spacing:.03em}
@@ -1276,7 +1300,22 @@ function resetApp(){appearance={theme:'晨霧白'};state.projects.forEach(p=>p.r
 function setTheme(name){appearance.theme=name;applyAppearance();saveToLS();document.querySelectorAll('.theme-card').forEach(el=>el.classList.toggle('selected',el.getAttribute('onclick')===`setTheme('${name}')`));renderSidebar()}
 function setPRC(projId,hex){const p=getProj(projId);if(!p)return;p.rowColor=hex;const strip=document.getElementById('strip-'+projId);if(strip)strip.querySelectorAll('.rcs').forEach(el=>el.classList.toggle('selected',el.style.background===hex||el.style.backgroundColor===hex));const prev=document.getElementById('prev-'+projId);if(prev)prev.style.background=hex;saveToLS();if(state.activeProject===projId)renderTasks()}
 
-function showModal(html){document.getElementById('modalContainer').innerHTML=`<div class="modal-backdrop" onclick="closeModal()"><div class="modal" onclick="event.stopPropagation()">${html}</div></div>`}
+function showModal(html){
+  // 將 modal-actions 從捲動區抽出，固定在底部
+  const actMatch=html.match(/<div class="modal-actions"[^>]*>([\s\S]*?)<\/div>\s*$/);
+  let scrollHtml=html, actionsHtml='';
+  if(actMatch){
+    actionsHtml=actMatch[0];
+    scrollHtml=html.slice(0,html.lastIndexOf(actMatch[0]));
+  }
+  document.getElementById('modalContainer').innerHTML=`
+    <div class="modal-backdrop" onclick="closeModal()">
+      <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-scroll">${scrollHtml}</div>
+        ${actionsHtml}
+      </div>
+    </div>`;
+}
 function closeModal(){document.getElementById('modalContainer').innerHTML=''}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 let toastTimer=null;
