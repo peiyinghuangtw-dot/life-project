@@ -1289,16 +1289,81 @@ function confirmDeleteNode(nodeId,projId){
 
 function openSettings(){
   const themeCards=Object.entries(THEMES).map(([name,t])=>`<div class="theme-card${appearance.theme===name?' selected':''}" onclick="setTheme('${name}')"><div class="theme-preview"><div class="tp-side" style="background:${t.sidebar}"></div><div class="tp-main" style="background:${t.bg}"><div class="tp-line" style="background:${t.accent};width:55%"></div><div class="tp-line" style="background:${t.text2};width:75%"></div><div class="tp-line" style="background:${t.text3};width:45%"></div></div></div><div class="theme-name">${name}</div></div>`).join('');
-  const projRows=state.projects.map(p=>{const sw=ROW_COLORS.map(c=>`<div class="rcs${p.rowColor===c.hex?' selected':''}" style="background:${c.hex}" onclick="setPRC('${p.id}','${c.hex}')" title="${c.name}"></div>`).join('');return`<div class="proj-row-item"><div class="proj-row-header"><div class="color-dot" style="background:${p.color};width:10px;height:10px"></div>${esc(p.name)}<span style="margin-left:auto;display:inline-block;width:28px;height:12px;border-radius:3px;background:${p.rowColor||DEFAULT_ROW}" id="prev-${p.id}"></span></div><div class="row-swatch-strip" id="strip-${p.id}">${sw}</div></div>`}).join('');
+
+  if(!state.projects.length){
+    showModal(`<h3>外觀設定</h3>
+      <div class="form-group"><label>版面主題</label><div class="theme-grid">${themeCards}</div></div>
+      <div class="modal-actions"><button class="btn-secondary" onclick="resetApp()">還原預設</button><button class="btn-primary" onclick="closeModal()">完成</button></div>`);
+    return;
+  }
+
+  // 下拉選單
+  const opts=state.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  // 預設選第一個專案的色盤
+  const firstProj=state.projects[0];
+  const swatches=_prcSwatches(firstProj.id);
+
   showModal(`<h3>外觀設定</h3>
     <div class="form-group"><label>版面主題</label><div class="theme-grid">${themeCards}</div></div>
     <hr class="section-divider"/>
-    <div class="form-group"><label>任務列背景色（各專案獨立設定）</label><div class="proj-row-list">${state.projects.length?projRows:'<div style="font-size:14px;color:var(--app-text3)">尚無專案</div>'}</div></div>
+    <div class="form-group">
+      <label>任務列背景色</label>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <select id="prcProjSel" onchange="prcSelect(this.value)"
+          style="flex:1;padding:10px 12px;border:1px solid var(--app-border2);border-radius:var(--br);
+            font-size:var(--fs-sm);font-family:inherit;background:var(--app-surface);color:var(--app-text);
+            outline:none;-webkit-appearance:none;appearance:none;">
+          ${opts}
+        </select>
+        <span id="prcPreview" style="width:32px;height:32px;border-radius:6px;flex-shrink:0;
+          background:${firstProj.rowColor||DEFAULT_ROW};border:1px solid var(--app-border)"></span>
+      </div>
+      <div class="row-swatch-strip" id="prcStrip" style="display:grid;grid-template-columns:repeat(6,1fr);gap:7px">${swatches}</div>
+    </div>
     <div class="modal-actions"><button class="btn-secondary" onclick="resetApp()">還原預設</button><button class="btn-primary" onclick="closeModal()">完成</button></div>`);
 }
+
+/* 產生單一色盤 HTML */
+function _prcSwatches(projId){
+  const p=getProj(projId);
+  return ROW_COLORS.map(c=>`<div class="rcs${p&&p.rowColor===c.hex?' selected':''}" style="background:${c.hex}" onclick="prcPick('${c.hex}')" title="${c.name}"></div>`).join('');
+}
+
+/* 下拉切換專案 → 更新色盤與預覽 */
+function prcSelect(projId){
+  const strip=document.getElementById('prcStrip');
+  const prev=document.getElementById('prcPreview');
+  if(strip) strip.innerHTML=_prcSwatches(projId);
+  const p=getProj(projId);
+  if(prev&&p) prev.style.background=p.rowColor||DEFAULT_ROW;
+}
+
+/* 點選色塊 → 更新資料 + 預覽 + 色盤勾選 */
+function prcPick(hex){
+  const sel=document.getElementById('prcProjSel');
+  if(!sel)return;
+  const projId=sel.value;
+  const p=getProj(projId);
+  if(!p)return;
+  p.rowColor=hex;
+  saveToLS();
+  // 更新預覽
+  const prev=document.getElementById('prcPreview');
+  if(prev) prev.style.background=hex;
+  // 更新色盤勾選
+  const strip=document.getElementById('prcStrip');
+  if(strip) strip.querySelectorAll('.rcs').forEach(el=>{
+    el.classList.toggle('selected', el.style.background===hex||el.style.backgroundColor===hex);
+  });
+  // 若目前任務分頁顯示的正是這個專案，即時重繪
+  if(state.activeProject===projId) renderTasks();
+}
+
+/* 舊 setPRC 保留相容性 */
+function setPRC(projId,hex){prcPick(hex);}
+
 function resetApp(){appearance={theme:'晨霧白'};state.projects.forEach(p=>p.rowColor=DEFAULT_ROW);applyAppearance();saveToLS();closeModal();openSettings()}
 function setTheme(name){appearance.theme=name;applyAppearance();saveToLS();document.querySelectorAll('.theme-card').forEach(el=>el.classList.toggle('selected',el.getAttribute('onclick')===`setTheme('${name}')`));renderSidebar()}
-function setPRC(projId,hex){const p=getProj(projId);if(!p)return;p.rowColor=hex;const strip=document.getElementById('strip-'+projId);if(strip)strip.querySelectorAll('.rcs').forEach(el=>el.classList.toggle('selected',el.style.background===hex||el.style.backgroundColor===hex));const prev=document.getElementById('prev-'+projId);if(prev)prev.style.background=hex;saveToLS();if(state.activeProject===projId)renderTasks()}
 
 function showModal(html){
   // 將 modal-actions 從捲動區抽出，固定在底部
