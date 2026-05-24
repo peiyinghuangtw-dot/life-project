@@ -119,6 +119,26 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
   transition:height .1s;
 }
 
+/* 長按拖曳降級 */
+.task-node.demote-dragging>.task-row{
+  opacity:.35;
+}
+.task-node.demote-target>.task-row{
+  outline:2.5px solid var(--app-accent);
+  outline-offset:-2px;
+  background:color-mix(in srgb,var(--app-accent) 12%,var(--app-hover))!important;
+}
+#demoteGhost{
+  position:fixed;pointer-events:none;z-index:9999;
+  border-radius:var(--br);background:var(--app-surface);
+  box-shadow:0 6px 24px rgba(0,0,0,.22);
+  padding:9px 14px;font-size:var(--task-fs,16px);font-weight:600;
+  color:var(--app-text);max-width:260px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  opacity:.93;transform:scale(1.04);
+  border-left:4px solid var(--app-accent);
+}
+
 /* ① 底部懸浮列 */
 .tasks-bottom-bar{
   position:fixed;bottom:0;left:0;right:0;
@@ -453,6 +473,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
 .toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:var(--app-text);color:var(--app-bg);font-size:var(--fs-sm);padding:10px 20px;border-radius:24px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:400;white-space:nowrap}
 .toast.show{opacity:1}
 </style>
+  <!-- Firebase compat SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
 <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
@@ -471,6 +495,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
     <div class="sidebar-footer">
       <!-- ② single 設定 button -->
       <button class="btn-settings-main" onclick="openSettingsMenu()"><i class="ti ti-settings"></i>設定</button>
+      <div id="syncInfo" style="padding:0 4px 4px"></div>
     </div>
   </div>
 
@@ -504,6 +529,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
 <div id="modalContainer"></div>
 
 <script>
+/* Firebase compat 透過 CDN script 載入，在 type=module 中用 window 存取全域 */
 const THEMES={
   '晨霧白':{bg:'#fafaf8',sidebar:'#f4f2ee',border:'#e5e2db',border2:'#ccc8bf',text:'#1c1917',text2:'#78716c',text3:'#b8b2aa',surface:'#fafaf8',hover:'#edeae4',accent:'#1c1917'},
   '燕麥奶':{bg:'#fdf8f0',sidebar:'#f5ede0',border:'#e8daca',border2:'#d4c4ae',text:'#2c1f0e',text2:'#8a6d4e',text3:'#bda98c',surface:'#fdf8f0',hover:'#ede3d4',accent:'#7c4f2a'},
@@ -531,9 +557,21 @@ let state={projects:[],activeProject:null,calYear:new Date().getFullYear(),calMo
 let appearance={theme:'晨霧白'};
 let showDone={tasks:true,tree:true};
 
-/* ── localStorage ── */
+/* ── Firebase 設定（請替換成你自己的 config） ── */
+const FB_CONFIG={
+  apiKey:           "YOUR_API_KEY",
+  authDomain:       "YOUR_PROJECT.firebaseapp.com",
+  projectId:        "YOUR_PROJECT_ID",
+  storageBucket:    "YOUR_PROJECT.appspot.com",
+  messagingSenderId:"YOUR_SENDER_ID",
+  appId:            "YOUR_APP_ID"
+};
+let fbApp=null,db=null,auth=null,fsDocRef=null,fbUid=null;
+let _unsubFS=null,_saveDebounce=null,_fbReady=false;
+
+/* ── localStorage（離線備用） ── */
 function saveToLS(){
-  try{localStorage.setItem(LS_KEY,JSON.stringify({state,appearance,uid,showDone}));flashSave();}catch(e){}
+  try{localStorage.setItem(LS_KEY,JSON.stringify({state,appearance,uid,showDone}));}catch(e){}
 }
 function loadFromLS(){
   try{
@@ -543,9 +581,180 @@ function loadFromLS(){
     return true;
   }catch(e){return false}
 }
+
+/* ── Firestore 儲存（防抖 800ms） ── */
+function saveToFS(){
+  saveToLS(); // 同時存 localStorage 作備用
+  if(!fsDocRef)return;
+  clearTimeout(_saveDebounce);
+  _saveDebounce=setTimeout(async()=>{
+    try{
+      await fsDocRef.set({state,appearance,uid,showDone,updatedAt:Date.now()});
+      flashSave();
+    }catch(e){console.warn('Firestore save failed',e);}
+  },800);
+}
+
+async function loadFromFS(){
+  if(!fsDocRef)return false;
+  try{
+    const snap=await fsDocRef.get();
+    if(!snap.exists)return false;
+    const d=snap.data();
+    if(d.state)Object.assign(state,d.state);
+    if(d.appearance)Object.assign(appearance,d.appearance);
+    if(d.uid)uid=d.uid;
+    if(d.showDone)Object.assign(showDone,d.showDone);
+    return true;
+  }catch(e){return false}
+}
+
+/* ── 即時監聽跨裝置同步 ── */
+let _lastSaveAt=0;
+function startFSListener(){
+  if(_unsubFS)_unsubFS();
+  _unsubFS=fsDocRef.onSnapshot((snap)=>{
+    if(!snap.exists)return;
+    const d=snap.data();
+    if(!d.updatedAt||d.updatedAt<=_lastSaveAt)return;
+    if(d.state)Object.assign(state,d.state);
+    if(d.appearance)Object.assign(appearance,d.appearance);
+    if(d.uid)uid=d.uid;
+    if(d.showDone)Object.assign(showDone,d.showDone);
+    applyAppearance();renderAll();
+  });
+}
+
+/* ── 登入畫面 ── */
+function showLoginScreen(){
+  document.getElementById('app').style.display='none';
+  document.getElementById('tasksBottomBar').style.display='none';
+  let loginEl=document.getElementById('loginScreen');
+  if(!loginEl){
+    loginEl=document.createElement('div');
+    loginEl.id='loginScreen';
+    loginEl.style.cssText='position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--app-bg);z-index:9999;gap:24px;padding:40px;';
+    loginEl.innerHTML=`
+      <div style="font-size:28px;font-weight:300;color:var(--app-text);letter-spacing:.02em">Life Project</div>
+      <div style="font-size:15px;color:var(--app-text2);text-align:center;max-width:280px;line-height:1.6">請登入以儲存並同步<br>你的任務與行事曆</div>
+      <button id="btnGoogleLogin"
+        style="display:flex;align-items:center;gap:12px;padding:14px 28px;border-radius:12px;
+          border:1.5px solid var(--app-border2);background:var(--app-surface);cursor:pointer;
+          font-size:16px;font-family:inherit;color:var(--app-text);
+          box-shadow:0 2px 8px rgba(0,0,0,.08);transition:box-shadow .15s">
+        <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.05 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-3.59-13.46-8.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+        使用 Google 帳號登入
+      </button>
+      <div id="loginMsg" style="font-size:13px;color:var(--app-text3)"></div>`;
+    document.body.appendChild(loginEl);
+    document.getElementById('btnGoogleLogin').addEventListener('click',async()=>{
+      document.getElementById('loginMsg').textContent='登入中…';
+      try{
+        const provider=new firebase.auth.GoogleAuthProvider();
+        await auth.signInWithPopup(provider);
+      }catch(e){
+        document.getElementById('loginMsg').textContent='登入失敗，請再試一次';
+        console.warn('Login error:',e);
+      }
+    });
+  }
+  loginEl.style.display='flex';
+}
+
+function hideLoginScreen(){
+  const el=document.getElementById('loginScreen');
+  if(el)el.style.display='none';
+  document.getElementById('app').style.display='';
+}
+
+/* ── 登出 ── */
+async function signOut(){
+  if(!auth)return;
+  _fbReady=false;
+  if(_unsubFS){_unsubFS();_unsubFS=null;}
+  await auth.signOut();
+  // 清除記憶體狀態
+  state={projects:[],activeProject:null,calYear:new Date().getFullYear(),calMonth:new Date().getMonth(),calFilter:{}};
+  appearance={theme:'晨霧白'};showDone={tasks:true,tree:true};uid=1;
+  fsDocRef=null;fbUid=null;
+  showLoginScreen();
+  closeSettingsMenu();
+}
+
+/* ── 側欄使用者資訊 ── */
+function updateUserUI(user){
+  const el=document.getElementById('syncInfo');
+  if(!el)return;
+  if(!user){el.innerHTML='';return;}
+  el.innerHTML=`
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 4px 2px">
+      ${user.photoURL?`<img src="${user.photoURL}" style="width:24px;height:24px;border-radius:50%;flex-shrink:0" referrerpolicy="no-referrer">`:''}
+      <div style="min-width:0">
+        <div style="font-size:12px;font-weight:500;color:var(--app-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(user.displayName||'使用者')}</div>
+        <div style="font-size:11px;color:var(--app-text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(user.email||'')}</div>
+      </div>
+    </div>
+    <button class="btn-settings-main" onclick="signOut()" style="color:#c0392b;font-size:13px;padding:8px 4px">
+      <i class="ti ti-logout"></i>登出
+    </button>`;
+}
+
+/* ── Firebase 初始化（DOMContentLoaded） ── */
+document.addEventListener('DOMContentLoaded',()=>{
+  if(FB_CONFIG.apiKey==='YOUR_API_KEY'){
+    /* 尚未設定 Firebase，直接用 localStorage 模式 */
+    const loaded=loadFromLS();
+    if(!loaded){
+      const p1={id:nid(),name:'我的第一個專案',color:'#3B82F6',rowColor:'#e8f0fb',tasks:[]};
+      state.projects.push(p1);state.activeProject=p1.id;state.calFilter[p1.id]=true;
+    }
+    applyAppearance();renderSidebar();renderCalendar();
+    return;
+  }
+
+  // Firebase 正式模式
+  fbApp=firebase.initializeApp(FB_CONFIG);
+  db=firebase.firestore();
+  auth=firebase.auth();
+  // 持久化：關閉後重開自動登入
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+
+  auth.onAuthStateChanged(async(user)=>{
+    if(user){
+      hideLoginScreen();
+      fbUid=user.uid;
+      fsDocRef=db.collection('users').doc(fbUid).collection('lifeproject').doc('data');
+      updateUserUI(user);
+      if(!_fbReady){
+        _fbReady=true;
+        const fsLoaded=await loadFromFS();
+        if(!fsLoaded){
+          // 第一次登入：嘗試把 localStorage 資料遷移上去
+          loadFromLS();
+          if(state.projects.length){
+            await fsDocRef.set({state,appearance,uid,showDone,updatedAt:Date.now()});
+          } else {
+            const p1={id:nid(),name:'我的第一個專案',color:'#3B82F6',rowColor:'#e8f0fb',tasks:[]};
+            state.projects.push(p1);state.activeProject=p1.id;state.calFilter[p1.id]=true;
+          }
+        }
+        applyAppearance();renderSidebar();renderCalendar();
+        startFSListener();
+      }
+    } else {
+      // 未登入 → 顯示登入畫面
+      hideLoginScreen(); // 先確保 app 不顯示
+      showLoginScreen();
+    }
+  });
+});
+
+/* ── 全站 saveToLS() 改指向 saveToFS() ── */
+window.saveToLS=saveToFS;
+
 let sdTimer=null;
-function flashSave(){const el=document.getElementById('saveDot');el.classList.add('show');clearTimeout(sdTimer);sdTimer=setTimeout(()=>el.classList.remove('show'),1200)}
-function saveAndRender(){saveToLS();renderAll()}
+function flashSave(){const el=document.getElementById('saveDot');if(el){el.classList.add('show');clearTimeout(sdTimer);sdTimer=setTimeout(()=>el.classList.remove('show'),1200)}}
+function saveAndRender(){saveToFS();renderAll()}
 
 /* ── export/import ── */
 function exportData(){
@@ -787,8 +996,15 @@ function rN(node,proj,depth){
   const depthCls=`depth-${Math.min(depth,3)}`;
   const rowStyle=depth===0?`style="background:${proj.rowColor||DEFAULT_ROW}"`:'';
   const dateLabel=node.date?`<span class="task-date-label">${esc(node.date)}</span>`:'';
+  // depth-0：加長按觸控事件（touchstart 綁在 task-row 上）
+  const touchAttrs=depth===0
+    ?`ontouchstart="demoteStart(event,'${node.id}','${proj.id}')"
+       ontouchmove="demoteMove(event)"
+       ontouchend="demoteEnd(event)"
+       ontouchcancel="demoteEnd(event)"`
+    :'';
   return `<div class="task-node ${depthCls}" id="nd-${node.id}">
-    <div class="task-row" ${rowStyle}>
+    <div class="task-row" ${rowStyle} ${touchAttrs}>
       <button class="expand-btn" style="${!hasC?'visibility:hidden':''}" onclick="toggleExpand('${node.id}','${proj.id}')"><i class="ti ti-chevron-${node.expanded?'down':'right'}"></i></button>
       <div class="task-checkbox${node.done?' checked':''}" onclick="toggleDone('${node.id}','${proj.id}')">${node.done?'<i class="ti ti-check" style="font-size:8px"></i>':''}</div>
       <button class="task-name-btn${node.done?' done':''}" onclick="openEditTask('${node.id}','${proj.id}')">${esc(node.name)}${node.note?'<span class="has-note"></span>':''}</button>
@@ -799,8 +1015,86 @@ function rN(node,proj,depth){
   </div>`;
 }
 
+/* ── 長按拖曳降級（depth-0 → 成為另一 depth-0 的子任務）── */
+const DM={timer:null,active:false,nodeId:null,projId:null,startX:0,startY:0,targetEl:null};
+const DEMOTE_HOLD=400;
+const DEMOTE_MOVE_LIMIT=8;
+
+function demoteStart(e,nodeId,projId){
+  if(e.touches.length!==1)return;
+  const t=e.touches[0];
+  DM.nodeId=nodeId;DM.projId=projId;
+  DM.startX=t.clientX;DM.startY=t.clientY;
+  DM.active=false;DM.targetEl=null;
+  DM.timer=setTimeout(()=>{
+    DM.active=true;
+    navigator.vibrate&&navigator.vibrate(40);
+    const el=document.getElementById('nd-'+nodeId);
+    if(el)el.classList.add('demote-dragging');
+    _demoteCreateGhost(nodeId,t.clientX,t.clientY);
+  },DEMOTE_HOLD);
+}
+
+function demoteMove(e){
+  if(!DM.timer&&!DM.active)return;
+  const t=e.touches[0];
+  const dx=Math.abs(t.clientX-DM.startX),dy=Math.abs(t.clientY-DM.startY);
+  if(!DM.active&&(dx>DEMOTE_MOVE_LIMIT||dy>DEMOTE_MOVE_LIMIT)){
+    clearTimeout(DM.timer);DM.timer=null;DM.nodeId=null;return;
+  }
+  if(!DM.active)return;
+  e.preventDefault();
+  const ghost=document.getElementById('demoteGhost');
+  if(ghost){ghost.style.left=(t.clientX-80)+'px';ghost.style.top=(t.clientY-24)+'px';}
+  const allD0=document.querySelectorAll('.task-tree .task-node.depth-0');
+  let hit=null;
+  allD0.forEach(el=>{
+    if(el.id==='nd-'+DM.nodeId)return;
+    const r=el.getBoundingClientRect();
+    if(t.clientY>=r.top&&t.clientY<=r.bottom)hit=el;
+  });
+  if(DM.targetEl&&DM.targetEl!==hit)DM.targetEl.classList.remove('demote-target');
+  if(hit){hit.classList.add('demote-target');DM.targetEl=hit;}
+  else DM.targetEl=null;
+}
+
+function demoteEnd(e){
+  clearTimeout(DM.timer);DM.timer=null;
+  if(!DM.active){DM.nodeId=null;return;}
+  _demoteRemoveGhost();
+  document.querySelectorAll('.demote-dragging').forEach(el=>el.classList.remove('demote-dragging'));
+  document.querySelectorAll('.demote-target').forEach(el=>el.classList.remove('demote-target'));
+  if(DM.targetEl){
+    const targetId=DM.targetEl.id.replace('nd-','');
+    _demoteNode(DM.nodeId,DM.projId,targetId);
+  }
+  DM.active=false;DM.nodeId=null;DM.projId=null;DM.targetEl=null;
+}
+
+function _demoteNode(dragId,projId,targetId){
+  const p=getProj(projId);if(!p||dragId===targetId)return;
+  const dragIdx=p.tasks.findIndex(t=>t.id===dragId);
+  if(dragIdx<0)return;
+  const targetNode=findNode(targetId,p.tasks);if(!targetNode)return;
+  const[dragNode]=p.tasks.splice(dragIdx,1);
+  targetNode.children.push(dragNode);
+  targetNode.expanded=true;
+  sortByDate(targetNode.children);
+  saveAndRender();
+  showToast(`「${dragNode.name}」已移入「${targetNode.name}」`);
+}
+
+function _demoteCreateGhost(nodeId,cx,cy){
+  _demoteRemoveGhost();
+  const p=getProj(DM.projId),node=p?findNode(nodeId,p.tasks):null;if(!node)return;
+  const g=document.createElement('div');g.id='demoteGhost';
+  g.textContent=node.name;
+  g.style.left=(cx-80)+'px';g.style.top=(cy-24)+'px';
+  document.body.appendChild(g);
+}
+function _demoteRemoveGhost(){const g=document.getElementById('demoteGhost');if(g)g.remove();}
+
 /* ── org-chart tree view ── */
-let treeActiveProjId=null;
 
 function renderTree(){
   if(!state.projects.length){el.innerHTML=`<div class="no-project"><i class="ti ti-sitemap"></i><p>尚無專案</p></div>`;return}
@@ -1386,13 +1680,7 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 let toastTimer=null;
 function showToast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),2400)}
 
-/* ── init ── */
-const loaded=loadFromLS();
-if(!loaded){
-  const p1={id:nid(),name:'我的第一個專案',color:'#3B82F6',rowColor:'#e8f0fb',tasks:[]};
-  state.projects.push(p1);state.activeProject=p1.id;state.calFilter[p1.id]=true;
-}
-applyAppearance();renderSidebar();renderCalendar();
+/* ── init 由 DOMContentLoaded 處理 ── */
 </script>
 </body>
 </html>
