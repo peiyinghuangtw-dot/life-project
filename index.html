@@ -207,6 +207,28 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
 .depth-3 > .task-row .task-name-btn{font-weight:400}
 .task-name-btn.done{text-decoration:line-through;color:var(--app-text3)}
 .has-note{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--app-accent);margin-left:6px;vertical-align:middle;opacity:.4}
+.has-recurring{display:inline-flex;align-items:center;margin-left:5px;color:var(--app-text3);font-size:10px;vertical-align:middle;opacity:.6}
+
+/* ── recurring picker ── */
+.recur-section{display:flex;flex-direction:column;gap:8px}
+.recur-toggle-row{display:flex;align-items:center;gap:10px}
+.recur-toggle{position:relative;width:40px;height:24px;flex-shrink:0}
+.recur-toggle input{opacity:0;width:0;height:0;position:absolute}
+.recur-slider{position:absolute;inset:0;border-radius:24px;background:var(--app-border2);cursor:pointer;transition:background .2s}
+.recur-toggle input:checked+.recur-slider{background:var(--app-accent)}
+.recur-slider::before{content:'';position:absolute;width:18px;height:18px;left:3px;top:3px;border-radius:50%;background:#fff;transition:transform .2s}
+.recur-toggle input:checked+.recur-slider::before{transform:translateX(16px)}
+.recur-toggle-label{font-size:var(--fs-sm);color:var(--app-text2)}
+.recur-options{display:flex;flex-direction:column;gap:10px;padding:2px 0 0}
+.recur-freq-row{display:flex;gap:6px;flex-wrap:wrap}
+.recur-freq-btn{padding:6px 14px;border-radius:999px;border:1.5px solid var(--app-border2);background:transparent;
+  font-size:var(--fs-sm);font-family:inherit;color:var(--app-text2);cursor:pointer;transition:all .15s;font-weight:500}
+.recur-freq-btn.active{background:var(--app-accent);border-color:var(--app-accent);color:var(--app-bg)}
+.recur-day-row{display:flex;gap:5px;flex-wrap:wrap}
+.recur-day-btn{width:36px;height:36px;border-radius:50%;border:1.5px solid var(--app-border2);background:transparent;
+  font-size:12px;font-family:inherit;color:var(--app-text2);cursor:pointer;transition:all .15s;font-weight:600;display:flex;align-items:center;justify-content:center}
+.recur-day-btn.active{background:var(--app-accent);border-color:var(--app-accent);color:var(--app-bg)}
+.recur-hint{font-size:var(--fs-xs);color:var(--app-text3);line-height:1.5;padding:2px 0}
 .task-date-label{font-size:14px;color:var(--app-text2);white-space:nowrap;flex-shrink:0;padding:0 2px;opacity:.75}
 .task-date-label.no-date{display:none}
 .task-add-btn{background:none;border:none;cursor:pointer;color:var(--app-text3);font-size:18px;
@@ -453,6 +475,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
 .toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:var(--app-text);color:var(--app-bg);font-size:var(--fs-sm);padding:10px 20px;border-radius:24px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:400;white-space:nowrap}
 .toast.show{opacity:1}
 </style>
+  <!-- Firebase compat SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
 <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
@@ -471,6 +497,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
     <div class="sidebar-footer">
       <!-- ② single 設定 button -->
       <button class="btn-settings-main" onclick="openSettingsMenu()"><i class="ti ti-settings"></i>設定</button>
+      <div id="syncInfo" style="padding:0 4px 4px"></div>
     </div>
   </div>
 
@@ -504,6 +531,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
 <div id="modalContainer"></div>
 
 <script>
+/* Firebase compat 透過 CDN script 載入，在 type=module 中用 window 存取全域 */
 const THEMES={
   '晨霧白':{bg:'#fafaf8',sidebar:'#f4f2ee',border:'#e5e2db',border2:'#ccc8bf',text:'#1c1917',text2:'#78716c',text3:'#b8b2aa',surface:'#fafaf8',hover:'#edeae4',accent:'#1c1917'},
   '燕麥奶':{bg:'#fdf8f0',sidebar:'#f5ede0',border:'#e8daca',border2:'#d4c4ae',text:'#2c1f0e',text2:'#8a6d4e',text3:'#bda98c',surface:'#fdf8f0',hover:'#ede3d4',accent:'#7c4f2a'},
@@ -531,9 +559,25 @@ let state={projects:[],activeProject:null,calYear:new Date().getFullYear(),calMo
 let appearance={theme:'晨霧白'};
 let showDone={tasks:true,tree:true};
 
-/* ── localStorage ── */
+/* ── Firebase 設定（請替換成你自己的 config） ── */
+const FB_CONFIG={
+  apiKey:           "YOUR_API_KEY",
+  authDomain:       "YOUR_PROJECT.firebaseapp.com",
+  projectId:        "YOUR_PROJECT_ID",
+  storageBucket:    "YOUR_PROJECT.appspot.com",
+  messagingSenderId:"YOUR_SENDER_ID",
+  appId:            "YOUR_APP_ID"
+};
+/* Firebase compat SDK 透過 <head> 的 <script> 標籤載入 */
+let fbApp=null,db=null,auth=null,fsDocRef=null,fbUid=null;
+let _unsubFS=null,_saveDebounce=null,_fbReady=false;
+
+/* ── 初始化 Firebase ── */
+
+
+/* ── localStorage（離線備用） ── */
 function saveToLS(){
-  try{localStorage.setItem(LS_KEY,JSON.stringify({state,appearance,uid,showDone}));flashSave();}catch(e){}
+  try{localStorage.setItem(LS_KEY,JSON.stringify({state,appearance,uid,showDone}));}catch(e){}
 }
 function loadFromLS(){
   try{
@@ -543,9 +587,142 @@ function loadFromLS(){
     return true;
   }catch(e){return false}
 }
+
+/* ── Firestore 儲存（防抖 800ms，避免頻繁寫入） ── */
+function saveToFS(){
+  if(!fsDocRef)return saveToLS(); // 離線時退回 localStorage
+  saveToLS(); // 同時存 localStorage 作備用
+  clearTimeout(_saveDebounce);
+  _saveDebounce=setTimeout(async()=>{
+    try{
+      await fsDocRef.set({state,appearance,uid,showDone,updatedAt:Date.now()});
+      flashSave();
+    }catch(e){console.warn('Firestore save failed',e);}
+  },800);
+}
+
+/* ── saveToLS 指向 saveToFS（全站呼叫不用改） ── */
+function saveToLS_alias(){saveToFS();}
+
+/* ── 從 Firestore 載入 ── */
+async function loadFromFS(){
+  if(!fsDocRef)return false;
+  try{
+    const snap=await fsDocRef.get();
+    if(!snap.exists)return false;
+    const d=snap.data();
+    if(d.state)Object.assign(state,d.state);
+    if(d.appearance)Object.assign(appearance,d.appearance);
+    if(d.uid)uid=d.uid;
+    if(d.showDone)Object.assign(showDone,d.showDone);
+    return true;
+  }catch(e){return false}
+}
+
+/* ── 即時監聽（其他裝置儲存時自動同步） ── */
+function startFSListener(){
+  if(_unsubFS)_unsubFS();
+  _unsubFS=fsDocRef.onSnapshot((snap)=>{
+    if(!snap.exists())return;
+    const d=snap.data();
+    if(!d.updatedAt)return;
+    // 只在非本機剛寫入時才更新（避免自己的寫入觸發閃爍）
+    if(d.state)Object.assign(state,d.state);
+    if(d.appearance)Object.assign(appearance,d.appearance);
+    if(d.uid)uid=d.uid;
+    if(d.showDone)Object.assign(showDone,d.showDone);
+    applyAppearance();renderAll();
+    showToast('資料已從雲端同步');
+  });
+}
+
+/* ── 登入狀態管理 ── */
+
+/* ── Firebase compat 初始化（DOMContentLoaded 確保 SDK 載入完畢） ── */
+document.addEventListener('DOMContentLoaded',()=>{
+  if(FB_CONFIG.apiKey==='YOUR_API_KEY'){
+    /* 尚未設定 Firebase，直接用 localStorage */
+    const loaded=loadFromLS();
+    if(!loaded){
+      const p1={id:nid(),name:'我的第一個專案',color:'#3B82F6',rowColor:'#e8f0fb',tasks:[]};
+      state.projects.push(p1);state.activeProject=p1.id;state.calFilter[p1.id]=true;
+    }
+    applyAppearance();renderSidebar();renderCalendar();
+    return;
+  }
+  fbApp=firebase.initializeApp(FB_CONFIG);
+  db=firebase.firestore();
+  auth=firebase.auth();
+  auth.onAuthStateChanged(async(user)=>{
+    if(user){
+      fbUid=user.uid;
+      fsDocRef=db.collection('users').doc(fbUid).collection('lifeproject').doc('data');
+      if(!_fbReady){
+        _fbReady=true;
+        const fsLoaded=await loadFromFS();
+        if(!fsLoaded){
+          loadFromLS();
+          if(state.projects.length) await fsDocRef.set({state,appearance,uid,showDone,updatedAt:Date.now()});
+          else{
+            const p1={id:nid(),name:'我的第一個專案',color:'#3B82F6',rowColor:'#e8f0fb',tasks:[]};
+            state.projects.push(p1);state.activeProject=p1.id;state.calFilter[p1.id]=true;
+          }
+        }
+        applyAppearance();renderSidebar();renderCalendar();
+        startFSListener();
+        updateSyncUI();
+      }
+    }
+  });
+  auth.signInAnonymously().catch(e=>console.warn('Auth:',e));
+});
+
+
+/* ── 同步 UI（側欄底部顯示 UID 與切換帳戶按鈕） ── */
+function updateSyncUI(){
+  const el=document.getElementById('syncInfo');
+  if(!el||!fbUid)return;
+  el.innerHTML=`
+    <div style="font-size:11px;color:var(--app-text3);padding:0 4px 2px;line-height:1.5">
+      同步 ID：
+      <span style="font-family:monospace;font-size:10px;word-break:break-all;cursor:pointer"
+        onclick="copySyncId()">${fbUid}</span>
+    </div>
+    <button class="btn-settings-main" onclick="switchAccount()" style="padding:8px 4px;font-size:12px"><i class="ti ti-arrows-exchange"></i>切換裝置同步</button>`;
+}
+function copySyncId(){
+  navigator.clipboard?.writeText(fbUid).then(()=>showToast('已複製同步 ID'));
+}
+async function switchAccount(){
+  const id=prompt('請輸入其他裝置的同步 ID：');
+  if(!id||id.trim()===fbUid)return;
+  // 用自訂 token 方式不可行；改用共用文件路徑：輸入 UID 後讀取對方文件（唯讀同步）
+  // 實務上建議改用 Email 登入；此處示範讀取指定 UID 的資料
+  try{
+    const otherRef=db.collection('users').doc(id.trim()).collection('lifeproject').doc('data');
+    const snap=await otherRef.get();
+    if(!snap.exists){showToast('找不到該同步 ID 的資料');return;}
+    const d=snap.data();
+    if(d.state)Object.assign(state,d.state);
+    if(d.appearance)Object.assign(appearance,d.appearance);
+    if(d.uid)uid=d.uid;
+    if(d.showDone)Object.assign(showDone,d.showDone);
+    // 複製到自己的文件
+    await fsDocRef.set({state,appearance,uid,showDone,updatedAt:Date.now()});
+    applyAppearance();renderAll();
+    showToast('同步成功！');
+  }catch(e){showToast('同步失敗：'+e.message)}
+}
+
+/* ── 全站 saveToLS() 改指向 saveToFS() ── */
+// 重新定義讓所有原本呼叫 saveToLS 的地方自動走 Firestore
+const _origSave=saveToLS;
+// 覆蓋全域
+window.saveToLS=saveToFS;
+
 let sdTimer=null;
-function flashSave(){const el=document.getElementById('saveDot');el.classList.add('show');clearTimeout(sdTimer);sdTimer=setTimeout(()=>el.classList.remove('show'),1200)}
-function saveAndRender(){saveToLS();renderAll()}
+function flashSave(){const el=document.getElementById('saveDot');if(el){el.classList.add('show');clearTimeout(sdTimer);sdTimer=setTimeout(()=>el.classList.remove('show'),1200)}}
+function saveAndRender(){saveToFS();renderAll()}
 
 /* ── export/import ── */
 function exportData(){
@@ -791,7 +968,7 @@ function rN(node,proj,depth){
     <div class="task-row" ${rowStyle}>
       <button class="expand-btn" style="${!hasC?'visibility:hidden':''}" onclick="toggleExpand('${node.id}','${proj.id}')"><i class="ti ti-chevron-${node.expanded?'down':'right'}"></i></button>
       <div class="task-checkbox${node.done?' checked':''}" onclick="toggleDone('${node.id}','${proj.id}')">${node.done?'<i class="ti ti-check" style="font-size:8px"></i>':''}</div>
-      <button class="task-name-btn${node.done?' done':''}" onclick="openEditTask('${node.id}','${proj.id}')">${esc(node.name)}${node.note?'<span class="has-note"></span>':''}</button>
+      <button class="task-name-btn${node.done?' done':''}" onclick="openEditTask('${node.id}','${proj.id}')">${esc(node.name)}${node.note?'<span class="has-note"></span>':''}${node.recur&&node.recur.enabled?'<span class="has-recurring"><i class="ti ti-refresh" style="font-size:9px"></i></span>':''}</button>
       ${dateLabel}
       <button class="task-add-btn" onclick="openAddTask('${proj.id}','${node.id}')"><i class="ti ti-plus"></i></button>
     </div>
@@ -1128,6 +1305,7 @@ function dayModalToggleDone(nodeId,projId,ds){
   const p=getProj(projId);if(!p)return;
   const node=findNode(nodeId,p.tasks);if(!node)return;
   node.done=!node.done;
+  if(node.done)handleRecurOnDone(node,p);
   saveToLS();
   // 局部更新 checkbox 外觀
   const row=document.getElementById('dmrow-'+nodeId);
@@ -1172,7 +1350,7 @@ function deleteProj(id){
   state.projects=state.projects.filter(p=>p.id!==id);delete state.calFilter[id];
   if(state.activeProject===id)state.activeProject=state.projects[0]?.id||null;saveAndRender()
 }
-function toggleDone(nodeId,projId){const p=getProj(projId);if(!p)return;const n=findNode(nodeId,p.tasks);if(n)n.done=!n.done;saveAndRender()}
+function toggleDone(nodeId,projId){const p=getProj(projId);if(!p)return;const n=findNode(nodeId,p.tasks);if(n){const wasDone=n.done;n.done=!n.done;if(n.done&&!wasDone)handleRecurOnDone(n,p);}saveAndRender()}
 function toggleExpand(nodeId,projId){const p=getProj(projId);if(!p)return;const n=findNode(nodeId,p.tasks);if(n)n.expanded=!n.expanded;saveAndRender()}
 function deleteNode(nodeId,projId){const p=getProj(projId);if(!p)return;p.tasks=p.tasks.filter(t=>t.id!==nodeId);function rem(ns){ns.forEach(n=>{n.children=n.children.filter(c=>c.id!==nodeId);rem(n.children)})}rem(p.tasks);saveAndRender()}
 
@@ -1223,6 +1401,9 @@ function openAddTask(projId,parentId){
       <div id="dp-tDate"></div>
       <button type="button" class="dp-clear" onclick="dpClear('tDate')">✕ 不顯示日期</button>
     </div>
+    <div class="form-group"><label>循環</label>
+      ${recurHTML(null)}
+    </div>
     <div class="form-group"><label>備註（選填）</label>
       <textarea id="tNote" rows="4" placeholder="備註..."></textarea>
     </div>
@@ -1236,7 +1417,7 @@ function submitNewTask(projId,parentId){
   const name=document.getElementById('tName')?.value.trim();if(!name)return;
   const date=dpGet('tDate'),note=document.getElementById('tNote')?.value||'';
   const p=getProj(projId);if(!p)return;
-  const node={id:nid(),name,date,note,done:false,children:[],expanded:true};
+  const node={id:nid(),name,date,note,done:false,children:[],expanded:true,recur:recurGetValue()};
   if(parentId){const par=findNode(parentId,p.tasks);if(par){par.children.push(node);sortByDate(par.children);par.expanded=true}}
   else{p.tasks.push(node);sortByDate(p.tasks)}
   closeModal();saveAndRender();
@@ -1254,6 +1435,9 @@ function openEditTask(nodeId,projId){
     <div class="form-group"><label>目標日期</label>
       <div id="dp-etDate"></div>
       <button type="button" class="dp-clear" onclick="dpClear('etDate')">✕ 不顯示日期</button>
+    </div>
+    <div class="form-group"><label>循環</label>
+      ${recurHTML(node.recur)}
     </div>
     <div class="form-group"><label>備註</label>
       <textarea id="etNote" rows="4" placeholder="輸入備註...">${esc(node.note||'')}</textarea>
@@ -1274,6 +1458,7 @@ function submitEditTask(nodeId,projId){
   node.name=name;
   node.date=dpGet('etDate');
   node.note=document.getElementById('etNote')?.value||'';
+  node.recur=recurGetValue();
   const siblings=findParentList(nodeId);if(siblings)sortByDate(siblings);
   closeModal();
   saveToLS();
@@ -1365,6 +1550,148 @@ function setPRC(projId,hex){prcPick(hex);}
 function resetApp(){appearance={theme:'晨霧白'};state.projects.forEach(p=>p.rowColor=DEFAULT_ROW);applyAppearance();saveToLS();closeModal();openSettings()}
 function setTheme(name){appearance.theme=name;applyAppearance();saveToLS();document.querySelectorAll('.theme-card').forEach(el=>el.classList.toggle('selected',el.getAttribute('onclick')===`setTheme('${name}')`));renderSidebar()}
 
+/* ── Recurring task helpers ── */
+const RECUR_FREQS=[
+  {id:'daily',label:'每天'},
+  {id:'weekly',label:'每週'},
+  {id:'monthly',label:'每月'},
+];
+const RECUR_DAYS=['日','一','二','三','四','五','六'];
+
+// Build the recur section HTML (used in both add & edit modals)
+function recurHTML(recur){
+  const r=recur||{enabled:false,freq:'daily',days:[],monthDay:null};
+  const enabled=r.enabled;
+  const freq=r.freq||'daily';
+  const days=r.days||[];
+
+  const freqBtns=RECUR_FREQS.map(f=>`<button type="button" class="recur-freq-btn${freq===f.id?' active':''}" onclick="recurSetFreq('${f.id}')">${f.label}</button>`).join('');
+  const dayBtns=RECUR_DAYS.map((d,i)=>`<button type="button" class="recur-day-btn${days.includes(i)?' active':''}" onclick="recurToggleDay(${i})">${d}</button>`).join('');
+
+  return `<div class="recur-section" id="recurSection">
+    <div class="recur-toggle-row">
+      <label class="recur-toggle">
+        <input type="checkbox" id="recurEnabled" ${enabled?'checked':''} onchange="recurToggleUI()">
+        <span class="recur-slider"></span>
+      </label>
+      <span class="recur-toggle-label">循環任務</span>
+    </div>
+    <div id="recurOpts" style="${enabled?'':'display:none'}">
+      <div class="recur-options">
+        <div class="recur-freq-row">${freqBtns}</div>
+        <div id="recurDayRow" style="${freq==='weekly'?'':'display:none'}">
+          <div style="font-size:var(--fs-xs);color:var(--app-text3);margin-bottom:6px">重複日期</div>
+          <div class="recur-day-row">${dayBtns}</div>
+        </div>
+        <div class="recur-hint" id="recurHint">${recurHintText(r)}</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function recurToggleUI(){
+  const enabled=document.getElementById('recurEnabled')?.checked;
+  const opts=document.getElementById('recurOpts');
+  if(opts)opts.style.display=enabled?'':'none';
+  recurUpdateHint();
+}
+
+function recurSetFreq(freq){
+  // update buttons
+  document.querySelectorAll('.recur-freq-btn').forEach(b=>b.classList.toggle('active',b.textContent===RECUR_FREQS.find(f=>f.id===freq)?.label));
+  // store freq in a data attr on section
+  const section=document.getElementById('recurSection');
+  if(section)section.dataset.freq=freq;
+  // show/hide day selector
+  const dayRow=document.getElementById('recurDayRow');
+  if(dayRow)dayRow.style.display=freq==='weekly'?'':'none';
+  recurUpdateHint();
+}
+
+function recurToggleDay(i){
+  const btn=document.querySelectorAll('.recur-day-btn')[i];
+  if(btn)btn.classList.toggle('active');
+  recurUpdateHint();
+}
+
+function recurUpdateHint(){
+  const r=recurGetValue();
+  const hint=document.getElementById('recurHint');
+  if(hint)hint.textContent=recurHintText(r);
+}
+
+function recurHintText(r){
+  if(!r||!r.enabled)return'';
+  if(r.freq==='daily')return'每天自動建立新任務';
+  if(r.freq==='monthly')return'每月同一天自動建立新任務';
+  if(r.freq==='weekly'){
+    if(!r.days||r.days.length===0)return'請選擇重複的星期';
+    const names=r.days.sort((a,b)=>a-b).map(d=>RECUR_DAYS[d]);
+    return`每週 ${names.join('、')} 自動建立新任務`;
+  }
+  return'';
+}
+
+// Read recur config from modal DOM
+function recurGetValue(){
+  const enabled=document.getElementById('recurEnabled')?.checked||false;
+  if(!enabled)return{enabled:false};
+  const section=document.getElementById('recurSection');
+  // freq from active button
+  const activeFreqBtn=document.querySelector('.recur-freq-btn.active');
+  const freq=activeFreqBtn?RECUR_FREQS.find(f=>f.label===activeFreqBtn.textContent)?.id||'daily':'daily';
+  const days=[];
+  document.querySelectorAll('.recur-day-btn').forEach((b,i)=>{if(b.classList.contains('active'))days.push(i);});
+  return{enabled,freq,days};
+}
+
+// Generate the next occurrence date string (yyyy-mm-dd) after a given date
+function recurNextDate(recur, fromDateStr){
+  if(!recur||!recur.enabled)return null;
+  const from=fromDateStr?new Date(fromDateStr+'T00:00:00'):new Date();
+  const next=new Date(from);
+  next.setDate(next.getDate()+1); // start from tomorrow
+
+  if(recur.freq==='daily') return fmtDate(next);
+
+  if(recur.freq==='weekly'){
+    const days=(recur.days&&recur.days.length?recur.days:[]).sort((a,b)=>a-b);
+    if(!days.length)return null;
+    for(let i=0;i<14;i++){
+      if(days.includes(next.getDay()))return fmtDate(next);
+      next.setDate(next.getDate()+1);
+    }
+    return null;
+  }
+
+  if(recur.freq==='monthly'){
+    const day=from.getDate();
+    next.setMonth(next.getMonth()+1);
+    next.setDate(day);
+    return fmtDate(next);
+  }
+  return null;
+}
+
+function fmtDate(d){
+  return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// When a recurring task is marked done, create the next occurrence
+function handleRecurOnDone(node, proj){
+  if(!node.recur||!node.recur.enabled)return;
+  const nextDate=recurNextDate(node.recur, node.date);
+  if(!nextDate)return;
+  // Check if a sibling with same name & nextDate already exists (avoid duplicates)
+  const siblings=findParentList(node.id)||proj.tasks;
+  const dup=siblings.find(s=>s.name===node.name&&s.date===nextDate&&!s.done&&s.id!==node.id);
+  if(dup)return;
+  const newNode={id:nid(),name:node.name,date:nextDate,note:node.note||'',done:false,children:[],expanded:true,recur:node.recur};
+  siblings.push(newNode);
+  sortByDate(siblings);
+  showToast(`循環任務已建立：${nextDate}`);
+}
+
 function showModal(html){
   // 將 modal-actions 從捲動區抽出，固定在底部
   const actMatch=html.match(/<div class="modal-actions"[^>]*>([\s\S]*?)<\/div>\s*$/);
@@ -1386,13 +1713,7 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 let toastTimer=null;
 function showToast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),2400)}
 
-/* ── init ── */
-const loaded=loadFromLS();
-if(!loaded){
-  const p1={id:nid(),name:'我的第一個專案',color:'#3B82F6',rowColor:'#e8f0fb',tasks:[]};
-  state.projects.push(p1);state.activeProject=p1.id;state.calFilter[p1.id]=true;
-}
-applyAppearance();renderSidebar();renderCalendar();
+/* ── init 由 DOMContentLoaded 處理 ── */
 </script>
 </body>
 </html>
