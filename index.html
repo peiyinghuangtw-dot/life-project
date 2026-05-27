@@ -207,28 +207,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
 .depth-3 > .task-row .task-name-btn{font-weight:400}
 .task-name-btn.done{text-decoration:line-through;color:var(--app-text3)}
 .has-note{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--app-accent);margin-left:6px;vertical-align:middle;opacity:.4}
-.has-recurring{display:inline-flex;align-items:center;margin-left:5px;color:var(--app-text3);font-size:10px;vertical-align:middle;opacity:.6}
-
-/* ── recurring picker ── */
-.recur-section{display:flex;flex-direction:column;gap:8px}
-.recur-toggle-row{display:flex;align-items:center;gap:10px}
-.recur-toggle{position:relative;width:40px;height:24px;flex-shrink:0}
-.recur-toggle input{opacity:0;width:0;height:0;position:absolute}
-.recur-slider{position:absolute;inset:0;border-radius:24px;background:var(--app-border2);cursor:pointer;transition:background .2s}
-.recur-toggle input:checked+.recur-slider{background:var(--app-accent)}
-.recur-slider::before{content:'';position:absolute;width:18px;height:18px;left:3px;top:3px;border-radius:50%;background:#fff;transition:transform .2s}
-.recur-toggle input:checked+.recur-slider::before{transform:translateX(16px)}
-.recur-toggle-label{font-size:var(--fs-sm);color:var(--app-text2)}
-.recur-options{display:flex;flex-direction:column;gap:10px;padding:2px 0 0}
-.recur-freq-row{display:flex;gap:6px;flex-wrap:wrap}
-.recur-freq-btn{padding:6px 14px;border-radius:999px;border:1.5px solid var(--app-border2);background:transparent;
-  font-size:var(--fs-sm);font-family:inherit;color:var(--app-text2);cursor:pointer;transition:all .15s;font-weight:500}
-.recur-freq-btn.active{background:var(--app-accent);border-color:var(--app-accent);color:var(--app-bg)}
-.recur-day-row{display:flex;gap:5px;flex-wrap:wrap}
-.recur-day-btn{width:36px;height:36px;border-radius:50%;border:1.5px solid var(--app-border2);background:transparent;
-  font-size:12px;font-family:inherit;color:var(--app-text2);cursor:pointer;transition:all .15s;font-weight:600;display:flex;align-items:center;justify-content:center}
-.recur-day-btn.active{background:var(--app-accent);border-color:var(--app-accent);color:var(--app-bg)}
-.recur-hint{font-size:var(--fs-xs);color:var(--app-text3);line-height:1.5;padding:2px 0}
 .task-date-label{font-size:14px;color:var(--app-text2);white-space:nowrap;flex-shrink:0;padding:0 2px;opacity:.75}
 .task-date-label.no-date{display:none}
 .task-add-btn{background:none;border:none;cursor:pointer;color:var(--app-text3);font-size:18px;
@@ -389,6 +367,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
 .dp-cell.selected.today{background:var(--app-accent);color:var(--app-bg)}
 .dp-selected-label{font-size:13px;color:var(--app-text2);padding:6px 12px 8px;border-top:1px solid var(--app-border);text-align:center;min-height:32px}
 .dp-clear{background:none;border:none;color:var(--app-text3);font-size:13px;cursor:pointer;padding:8px 0 2px;font-family:inherit;display:block}
+/* 循環選項 */
+.dp-recur-row{display:flex;align-items:center;gap:6px;padding:8px 12px 10px;border-top:1px solid var(--app-border);flex-wrap:wrap}
+.dp-recur-label{font-size:12px;color:var(--app-text2);white-space:nowrap;flex-shrink:0}
+.dp-recur-btn{font-size:12px;padding:4px 10px;border-radius:999px;cursor:pointer;border:1.5px solid var(--app-border2);
+  background:transparent;color:var(--app-text2);font-family:inherit;transition:all .15s;white-space:nowrap}
+.dp-recur-btn.active{background:var(--app-accent);color:var(--app-bg);border-color:var(--app-accent);font-weight:600}
+.dp-recur-btn:active{opacity:.75}
 
 /* action sheet (long-press menu) */
 .action-sheet-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.28);z-index:200;display:flex;align-items:flex-end;justify-content:center}
@@ -963,12 +948,13 @@ function rN(node,proj,depth){
   const hasC=node.children&&node.children.length>0;
   const depthCls=`depth-${Math.min(depth,3)}`;
   const rowStyle=depth===0?`style="background:${proj.rowColor||DEFAULT_ROW}"`:'';
-  const dateLabel=node.date?`<span class="task-date-label">${esc(node.date)}</span>`:'';
+  const recurBadge=node.recur?{week:'↻週',month:'↻月',year:'↻年'}[node.recur]||'':'';
+  const dateLabel=node.date?`<span class="task-date-label">${esc(node.date)}${recurBadge?` <span style="font-size:11px;opacity:.65">${recurBadge}</span>`:''}</span>`:'';
   return `<div class="task-node ${depthCls}" id="nd-${node.id}">
     <div class="task-row" ${rowStyle}>
       <button class="expand-btn" style="${!hasC?'visibility:hidden':''}" onclick="toggleExpand('${node.id}','${proj.id}')"><i class="ti ti-chevron-${node.expanded?'down':'right'}"></i></button>
       <div class="task-checkbox${node.done?' checked':''}" onclick="toggleDone('${node.id}','${proj.id}')">${node.done?'<i class="ti ti-check" style="font-size:8px"></i>':''}</div>
-      <button class="task-name-btn${node.done?' done':''}" onclick="openEditTask('${node.id}','${proj.id}')">${esc(node.name)}${node.note?'<span class="has-note"></span>':''}${node.recur&&node.recur.enabled?'<span class="has-recurring"><i class="ti ti-refresh" style="font-size:9px"></i></span>':''}</button>
+      <button class="task-name-btn${node.done?' done':''}" onclick="openEditTask('${node.id}','${proj.id}')">${esc(node.name)}${node.note?'<span class="has-note"></span>':''}</button>
       ${dateLabel}
       <button class="task-add-btn" onclick="openAddTask('${proj.id}','${node.id}')"><i class="ti ti-plus"></i></button>
     </div>
@@ -1142,6 +1128,26 @@ function toggleShowDone(pane){
 }
 
 /* ── calendar (Mon-first) ── */
+/* Helper: check if a recurring task falls on a given date string 'YYYY-MM-DD' */
+function recurMatchesDate(node, ds){
+  if(!node.date||!node.recur)return false;
+  const [oy,om,od]=node.date.split('-').map(Number);
+  const [ty,tm,td]=ds.split('-').map(Number);
+  const orig=new Date(oy,om-1,od);
+  const tgt=new Date(ty,tm-1,td);
+  if(tgt<=orig)return false; // don't repeat before or on original
+  if(node.recur==='week'){
+    const diff=Math.round((tgt-orig)/(86400000));
+    return diff>0&&diff%7===0;
+  }
+  if(node.recur==='month'){
+    return td===od&&(ty>oy||(ty===oy&&tm>om));
+  }
+  if(node.recur==='year'){
+    return tm===om&&td===od&&ty>oy;
+  }
+  return false;
+}
 function renderCalendar(){
   const wrap=document.getElementById('calContent');
   const year=state.calYear,month=state.calMonth,today=new Date();
@@ -1150,9 +1156,31 @@ function renderCalendar(){
   const startDow=(rawDow===0)?6:rawDow-1;
   const months=['一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月'];
   const allItems=[];state.projects.forEach(p=>collectAll(p.tasks,p,allItems));
-  const byDate={};allItems.forEach(item=>{if(item.node.date&&state.calFilter[item.proj.id]){if(!byDate[item.node.date])byDate[item.node.date]=[];byDate[item.node.date].push(item)}});
+  // Build byDate including recurring items
+  const byDate={};
+  allItems.forEach(item=>{
+    if(!state.calFilter[item.proj.id])return;
+    if(item.node.date){
+      if(!byDate[item.node.date])byDate[item.node.date]=[];
+      byDate[item.node.date].push({...item,isRecurInstance:false});
+    }
+    // Expand recurrences for this calendar month
+    if(item.node.recur&&item.node.date){
+      for(let d=1;d<=lastDay.getDate();d++){
+        const ds=`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        if(recurMatchesDate(item.node,ds)){
+          if(!byDate[ds])byDate[ds]=[];
+          // avoid duplicate if base date falls in same month
+          if(!byDate[ds].some(x=>x.node.id===item.node.id))
+            byDate[ds].push({...item,isRecurInstance:true});
+        }
+      }
+    }
+  });
   const chips=state.projects.map(p=>`<div class="filter-chip${state.calFilter[p.id]?'':' off'}" style="background:${p.color}20;color:${p.color};border-color:${p.color}" onclick="toggleFilter('${p.id}')">${esc(p.name)}</div>`).join('');
   const total=Math.ceil((startDow+lastDay.getDate())/7)*7;
+  // Recur icon map
+  const recurIcon={week:'↻週',month:'↻月',year:'↻年'};
   let cells='';
   for(let i=0;i<total;i++){
     const d=i-startDow+1,inM=d>=1&&d<=lastDay.getDate();
@@ -1160,7 +1188,10 @@ function renderCalendar(){
     const isToday=inM&&today.getFullYear()===year&&today.getMonth()===month&&today.getDate()===d;
     const evts=ds&&byDate[ds]?byDate[ds]:[];
     const dropAttrs=inM?`ondragover="calDO(event,'${ds}')" ondragleave="calDL(event)" ondrop="calDrop(event,'${ds}')"` :'';
-    const evtHtml=evts.map(item=>`<div class="cal-event${item.node.done?' done':''}" style="background:${item.proj.color}22;color:${item.proj.color};border-left:2px solid ${item.proj.color}">${esc(item.node.name)}</div>`).join('');
+    const evtHtml=evts.map(item=>{
+      const tag=item.node.recur?`<span style="font-size:9px;opacity:.7;margin-left:2px">${recurIcon[item.node.recur]||''}</span>`:'';
+      return`<div class="cal-event${item.node.done&&!item.isRecurInstance?' done':''}" style="background:${item.proj.color}22;color:${item.proj.color};border-left:2px solid ${item.proj.color};${item.isRecurInstance?'opacity:.75;':''}">${esc(item.node.name)}${tag}</div>`;
+    }).join('');
     const clickAttr=inM?`onclick="openDayModal('${ds}')"`:'';
     cells+=`<div class="cal-day${!inM?' other-month':''}${isToday?' today':''}" style="${inM?'cursor:pointer':''}" ${dropAttrs} ${clickAttr}><div class="day-num">${inM?d:''}</div>${evtHtml}</div>`;
   }
@@ -1197,11 +1228,11 @@ function toggleFilter(p){state.calFilter[p]=!state.calFilter[p];saveToLS();rende
 */
 const _dp={};
 
-function dpRender(fid,initVal){
+function dpRender(fid,initVal,initRecur){
   const today=new Date();
   let sel=null;
   if(initVal){const p=initVal.split('-');if(p.length===3)sel={y:+p[0],m:+p[1]-1,d:+p[2]};}
-  _dp[fid]={fid,year:sel?sel.y:today.getFullYear(),month:sel?sel.m:today.getMonth(),selected:sel};
+  _dp[fid]={fid,year:sel?sel.y:today.getFullYear(),month:sel?sel.m:today.getMonth(),selected:sel,recur:initRecur||null};
   _dpDraw(fid);
 }
 function _dpDraw(fid){
@@ -1224,6 +1255,8 @@ function _dpDraw(fid){
     cells+=`<div class="${cls}" ${onclick}>${inM?d:''}</div>`;
   }
   const selLabel=s.selected?`${s.selected.y} 年 ${s.selected.m+1} 月 ${s.selected.d} 日`:'尚未選取日期';
+  const recurOpts=[{k:null,l:'不循環'},{k:'week',l:'每週'},{k:'month',l:'每月'},{k:'year',l:'每年'}];
+  const recurHtml=recurOpts.map(o=>`<button class="dp-recur-btn${s.recur===o.k?' active':''}" onclick="dpSetRecur('${fid}','${o.k||''}')">${o.l}</button>`).join('');
   el.innerHTML=`<div class="dp-wrap">
     <div class="dp-header">
       <button class="dp-nav" onclick="dpPrev('${fid}')"><i class="ti ti-chevron-left"></i></button>
@@ -1235,18 +1268,21 @@ function _dpDraw(fid){
       ${cells}
     </div>
     <div class="dp-selected-label">${selLabel}</div>
+    <div class="dp-recur-row"><span class="dp-recur-label">循環：</span>${recurHtml}</div>
   </div>`;
 }
 function dpPrev(fid){const s=_dp[fid];if(!s)return;s.month--;if(s.month<0){s.month=11;s.year--;}; _dpDraw(fid);}
 function dpNext(fid){const s=_dp[fid];if(!s)return;s.month++;if(s.month>11){s.month=0;s.year++;};_dpDraw(fid);}
 function dpPick(fid,y,m,d){const s=_dp[fid];if(!s)return;s.selected={y,m,d};_dpDraw(fid);}
-function dpClear(fid){const s=_dp[fid];if(!s)return;s.selected=null;_dpDraw(fid);}
+function dpClear(fid){const s=_dp[fid];if(!s)return;s.selected=null;s.recur=null;_dpDraw(fid);}
+function dpSetRecur(fid,val){const s=_dp[fid];if(!s)return;s.recur=val||null;_dpDraw(fid);}
 function dpGet(fid){
   const s=_dp[fid];
   if(!s||!s.selected)return'';
   const {y,m,d}=s.selected;
   return`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 }
+function dpGetRecur(fid){const s=_dp[fid];return s?s.recur||null:null;}
 
 /* ─── 單日任務彈出視窗 ─── */
 /* 目前開著的 day modal 日期，供 submitEditTask 用 */
@@ -1305,7 +1341,6 @@ function dayModalToggleDone(nodeId,projId,ds){
   const p=getProj(projId);if(!p)return;
   const node=findNode(nodeId,p.tasks);if(!node)return;
   node.done=!node.done;
-  if(node.done)handleRecurOnDone(node,p);
   saveToLS();
   // 局部更新 checkbox 外觀
   const row=document.getElementById('dmrow-'+nodeId);
@@ -1350,7 +1385,7 @@ function deleteProj(id){
   state.projects=state.projects.filter(p=>p.id!==id);delete state.calFilter[id];
   if(state.activeProject===id)state.activeProject=state.projects[0]?.id||null;saveAndRender()
 }
-function toggleDone(nodeId,projId){const p=getProj(projId);if(!p)return;const n=findNode(nodeId,p.tasks);if(n){const wasDone=n.done;n.done=!n.done;if(n.done&&!wasDone)handleRecurOnDone(n,p);}saveAndRender()}
+function toggleDone(nodeId,projId){const p=getProj(projId);if(!p)return;const n=findNode(nodeId,p.tasks);if(n)n.done=!n.done;saveAndRender()}
 function toggleExpand(nodeId,projId){const p=getProj(projId);if(!p)return;const n=findNode(nodeId,p.tasks);if(n)n.expanded=!n.expanded;saveAndRender()}
 function deleteNode(nodeId,projId){const p=getProj(projId);if(!p)return;p.tasks=p.tasks.filter(t=>t.id!==nodeId);function rem(ns){ns.forEach(n=>{n.children=n.children.filter(c=>c.id!==nodeId);rem(n.children)})}rem(p.tasks);saveAndRender()}
 
@@ -1401,9 +1436,6 @@ function openAddTask(projId,parentId){
       <div id="dp-tDate"></div>
       <button type="button" class="dp-clear" onclick="dpClear('tDate')">✕ 不顯示日期</button>
     </div>
-    <div class="form-group"><label>循環</label>
-      ${recurHTML(null)}
-    </div>
     <div class="form-group"><label>備註（選填）</label>
       <textarea id="tNote" rows="4" placeholder="備註..."></textarea>
     </div>
@@ -1416,8 +1448,9 @@ function openAddTask(projId,parentId){
 function submitNewTask(projId,parentId){
   const name=document.getElementById('tName')?.value.trim();if(!name)return;
   const date=dpGet('tDate'),note=document.getElementById('tNote')?.value||'';
+  const recur=dpGetRecur('tDate');
   const p=getProj(projId);if(!p)return;
-  const node={id:nid(),name,date,note,done:false,children:[],expanded:true,recur:recurGetValue()};
+  const node={id:nid(),name,date,note,done:false,children:[],expanded:true,recur:recur||null};
   if(parentId){const par=findNode(parentId,p.tasks);if(par){par.children.push(node);sortByDate(par.children);par.expanded=true}}
   else{p.tasks.push(node);sortByDate(p.tasks)}
   closeModal();saveAndRender();
@@ -1436,9 +1469,6 @@ function openEditTask(nodeId,projId){
       <div id="dp-etDate"></div>
       <button type="button" class="dp-clear" onclick="dpClear('etDate')">✕ 不顯示日期</button>
     </div>
-    <div class="form-group"><label>循環</label>
-      ${recurHTML(node.recur)}
-    </div>
     <div class="form-group"><label>備註</label>
       <textarea id="etNote" rows="4" placeholder="輸入備註...">${esc(node.note||'')}</textarea>
     </div>
@@ -1449,7 +1479,7 @@ function openEditTask(nodeId,projId){
         <button class="btn-primary" onclick="submitEditTask('${nodeId}','${projId}')">儲存</button>
       </div>
     </div>`);
-  setTimeout(()=>{dpRender('etDate',node.date||'');document.getElementById('etName')?.focus();},50);
+  setTimeout(()=>{dpRender('etDate',node.date||'',node.recur||null);document.getElementById('etName')?.focus();},50);
 }
 function submitEditTask(nodeId,projId){
   const p=getProj(projId);if(!p)return;
@@ -1457,8 +1487,8 @@ function submitEditTask(nodeId,projId){
   const name=document.getElementById('etName')?.value.trim();if(!name)return;
   node.name=name;
   node.date=dpGet('etDate');
+  node.recur=dpGetRecur('etDate')||null;
   node.note=document.getElementById('etNote')?.value||'';
-  node.recur=recurGetValue();
   const siblings=findParentList(nodeId);if(siblings)sortByDate(siblings);
   closeModal();
   saveToLS();
@@ -1549,111 +1579,6 @@ function setPRC(projId,hex){prcPick(hex);}
 
 function resetApp(){appearance={theme:'晨霧白'};state.projects.forEach(p=>p.rowColor=DEFAULT_ROW);applyAppearance();saveToLS();closeModal();openSettings()}
 function setTheme(name){appearance.theme=name;applyAppearance();saveToLS();document.querySelectorAll('.theme-card').forEach(el=>el.classList.toggle('selected',el.getAttribute('onclick')===`setTheme('${name}')`));renderSidebar()}
-
-/* ── Recurring task helpers ── */
-const RECUR_FREQS=[
-  {id:'daily',label:'每天'},
-  {id:'weekly',label:'每週'},
-  {id:'monthly',label:'每月'},
-];
-const RECUR_DAYS=['日','一','二','三','四','五','六'];
-
-function recurHTML(recur){
-  const r=recur||{enabled:false,freq:'daily',days:[]};
-  const enabled=r.enabled;
-  const freq=r.freq||'daily';
-  const days=r.days||[];
-  const freqBtns=RECUR_FREQS.map(f=>`<button type="button" class="recur-freq-btn${freq===f.id?' active':''}" onclick="recurSetFreq('${f.id}')">${f.label}</button>`).join('');
-  const dayBtns=RECUR_DAYS.map((d,i)=>`<button type="button" class="recur-day-btn${days.includes(i)?' active':''}" onclick="recurToggleDay(${i})">${d}</button>`).join('');
-  const optsStyle=enabled?'':'display:none';
-  const dayRowStyle=freq==='weekly'?'':'display:none';
-  return '<div class="recur-section" id="recurSection">'
-    +'<div class="recur-toggle-row">'
-    +'<label class="recur-toggle">'
-    +'<input type="checkbox" id="recurEnabled" '+(enabled?'checked':'')+' onchange="recurToggleUI()">'
-    +'<span class="recur-slider"></span>'
-    +'</label>'
-    +'<span class="recur-toggle-label">循環任務</span>'
-    +'</div>'
-    +'<div id="recurOpts" style="'+optsStyle+'">'
-    +'<div class="recur-options">'
-    +'<div class="recur-freq-row">'+freqBtns+'</div>'
-    +'<div id="recurDayRow" style="'+dayRowStyle+'">'
-    +'<div style="font-size:var(--fs-xs);color:var(--app-text3);margin-bottom:6px">重複日期</div>'
-    +'<div class="recur-day-row">'+dayBtns+'</div>'
-    +'</div>'
-    +'<div class="recur-hint" id="recurHint">'+recurHintText(r)+'</div>'
-    +'</div>'
-    +'</div>'
-    +'</div>';
-}
-
-function recurToggleUI(){
-  const enabled=document.getElementById('recurEnabled')?.checked;
-  const opts=document.getElementById('recurOpts');
-  if(opts)opts.style.display=enabled?'':'none';
-  recurUpdateHint();
-}
-function recurSetFreq(freq){
-  document.querySelectorAll('.recur-freq-btn').forEach(b=>b.classList.toggle('active',b.textContent===RECUR_FREQS.find(f=>f.id===freq)?.label));
-  const dayRow=document.getElementById('recurDayRow');
-  if(dayRow)dayRow.style.display=freq==='weekly'?'':'none';
-  recurUpdateHint();
-}
-function recurToggleDay(i){
-  const btn=document.querySelectorAll('.recur-day-btn')[i];
-  if(btn)btn.classList.toggle('active');
-  recurUpdateHint();
-}
-function recurUpdateHint(){
-  const hint=document.getElementById('recurHint');
-  if(hint)hint.textContent=recurHintText(recurGetValue());
-}
-function recurHintText(r){
-  if(!r||!r.enabled)return'';
-  if(r.freq==='daily')return'每天自動建立新任務';
-  if(r.freq==='monthly')return'每月同一天自動建立新任務';
-  if(r.freq==='weekly'){
-    if(!r.days||r.days.length===0)return'請選擇重複的星期';
-    return'每週 '+r.days.slice().sort((a,b)=>a-b).map(d=>RECUR_DAYS[d]).join('、')+' 自動建立新任務';
-  }
-  return'';
-}
-function recurGetValue(){
-  const enabled=document.getElementById('recurEnabled')?.checked||false;
-  if(!enabled)return{enabled:false};
-  const activeFreqBtn=document.querySelector('.recur-freq-btn.active');
-  const freq=activeFreqBtn?RECUR_FREQS.find(f=>f.label===activeFreqBtn.textContent)?.id||'daily':'daily';
-  const days=[];
-  document.querySelectorAll('.recur-day-btn').forEach((b,i)=>{if(b.classList.contains('active'))days.push(i);});
-  return{enabled,freq,days};
-}
-function recurNextDate(recur,fromDateStr){
-  if(!recur||!recur.enabled)return null;
-  const from=fromDateStr?new Date(fromDateStr+'T00:00:00'):new Date();
-  const next=new Date(from);next.setDate(next.getDate()+1);
-  if(recur.freq==='daily')return fmtDate(next);
-  if(recur.freq==='weekly'){
-    const days=(recur.days&&recur.days.length?recur.days:[]).sort((a,b)=>a-b);
-    if(!days.length)return null;
-    for(let i=0;i<14;i++){if(days.includes(next.getDay()))return fmtDate(next);next.setDate(next.getDate()+1);}
-    return null;
-  }
-  if(recur.freq==='monthly'){next.setMonth(next.getMonth()+1);return fmtDate(next);}
-  return null;
-}
-function fmtDate(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
-function handleRecurOnDone(node,proj){
-  if(!node.recur||!node.recur.enabled)return;
-  const nextDate=recurNextDate(node.recur,node.date);
-  if(!nextDate)return;
-  const siblings=findParentList(node.id)||proj.tasks;
-  const dup=siblings.find(s=>s.name===node.name&&s.date===nextDate&&!s.done&&s.id!==node.id);
-  if(dup)return;
-  const newNode={id:nid(),name:node.name,date:nextDate,note:node.note||'',done:false,children:[],expanded:true,recur:node.recur};
-  siblings.push(newNode);sortByDate(siblings);
-  showToast('循環任務已建立：'+nextDate);
-}
 
 function showModal(html){
   // 將 modal-actions 從捲動區抽出，固定在底部
