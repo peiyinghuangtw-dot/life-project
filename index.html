@@ -1693,12 +1693,14 @@ function handleRecurOnDone(node, proj){
 }
 
 function showModal(html){
-  // 將 modal-actions 從捲動區抽出，固定在底部
-  const actMatch=html.match(/<div class="modal-actions"[^>]*>([\s\S]*?)<\/div>\s*$/);
+  // 找最後一個 <div class="modal-actions"...>...</div> 區塊
+  // 用 lastIndexOf 找到最後一個 modal-actions 開頭位置，再截取
+  const openTag='<div class="modal-actions"';
+  const lastIdx=html.lastIndexOf(openTag);
   let scrollHtml=html, actionsHtml='';
-  if(actMatch){
-    actionsHtml=actMatch[0];
-    scrollHtml=html.slice(0,html.lastIndexOf(actMatch[0]));
+  if(lastIdx>=0){
+    scrollHtml=html.slice(0,lastIdx);
+    actionsHtml=html.slice(lastIdx);
   }
   document.getElementById('modalContainer').innerHTML=`
     <div class="modal-backdrop" onclick="closeModal()">
