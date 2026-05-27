@@ -1558,35 +1558,34 @@ const RECUR_FREQS=[
 ];
 const RECUR_DAYS=['日','一','二','三','四','五','六'];
 
-// Build the recur section HTML (used in both add & edit modals)
 function recurHTML(recur){
-  const r=recur||{enabled:false,freq:'daily',days:[],monthDay:null};
+  const r=recur||{enabled:false,freq:'daily',days:[]};
   const enabled=r.enabled;
   const freq=r.freq||'daily';
   const days=r.days||[];
-
   const freqBtns=RECUR_FREQS.map(f=>`<button type="button" class="recur-freq-btn${freq===f.id?' active':''}" onclick="recurSetFreq('${f.id}')">${f.label}</button>`).join('');
   const dayBtns=RECUR_DAYS.map((d,i)=>`<button type="button" class="recur-day-btn${days.includes(i)?' active':''}" onclick="recurToggleDay(${i})">${d}</button>`).join('');
-
-  return `<div class="recur-section" id="recurSection">
-    <div class="recur-toggle-row">
-      <label class="recur-toggle">
-        <input type="checkbox" id="recurEnabled" ${enabled?'checked':''} onchange="recurToggleUI()">
-        <span class="recur-slider"></span>
-      </label>
-      <span class="recur-toggle-label">循環任務</span>
-    </div>
-    <div id="recurOpts" style="${enabled?'':'display:none'}">
-      <div class="recur-options">
-        <div class="recur-freq-row">${freqBtns}</div>
-        <div id="recurDayRow" style="${freq==='weekly'?'':'display:none'}">
-          <div style="font-size:var(--fs-xs);color:var(--app-text3);margin-bottom:6px">重複日期</div>
-          <div class="recur-day-row">${dayBtns}</div>
-        </div>
-        <div class="recur-hint" id="recurHint">${recurHintText(r)}</div>
-      </div>
-    </div>
-  </div>`;
+  const optsStyle=enabled?'':'display:none';
+  const dayRowStyle=freq==='weekly'?'':'display:none';
+  return '<div class="recur-section" id="recurSection">'
+    +'<div class="recur-toggle-row">'
+    +'<label class="recur-toggle">'
+    +'<input type="checkbox" id="recurEnabled" '+(enabled?'checked':'')+' onchange="recurToggleUI()">'
+    +'<span class="recur-slider"></span>'
+    +'</label>'
+    +'<span class="recur-toggle-label">循環任務</span>'
+    +'</div>'
+    +'<div id="recurOpts" style="'+optsStyle+'">'
+    +'<div class="recur-options">'
+    +'<div class="recur-freq-row">'+freqBtns+'</div>'
+    +'<div id="recurDayRow" style="'+dayRowStyle+'">'
+    +'<div style="font-size:var(--fs-xs);color:var(--app-text3);margin-bottom:6px">重複日期</div>'
+    +'<div class="recur-day-row">'+dayBtns+'</div>'
+    +'</div>'
+    +'<div class="recur-hint" id="recurHint">'+recurHintText(r)+'</div>'
+    +'</div>'
+    +'</div>'
+    +'</div>';
 }
 
 function recurToggleUI(){
@@ -1595,112 +1594,74 @@ function recurToggleUI(){
   if(opts)opts.style.display=enabled?'':'none';
   recurUpdateHint();
 }
-
 function recurSetFreq(freq){
-  // update buttons
   document.querySelectorAll('.recur-freq-btn').forEach(b=>b.classList.toggle('active',b.textContent===RECUR_FREQS.find(f=>f.id===freq)?.label));
-  // store freq in a data attr on section
-  const section=document.getElementById('recurSection');
-  if(section)section.dataset.freq=freq;
-  // show/hide day selector
   const dayRow=document.getElementById('recurDayRow');
   if(dayRow)dayRow.style.display=freq==='weekly'?'':'none';
   recurUpdateHint();
 }
-
 function recurToggleDay(i){
   const btn=document.querySelectorAll('.recur-day-btn')[i];
   if(btn)btn.classList.toggle('active');
   recurUpdateHint();
 }
-
 function recurUpdateHint(){
-  const r=recurGetValue();
   const hint=document.getElementById('recurHint');
-  if(hint)hint.textContent=recurHintText(r);
+  if(hint)hint.textContent=recurHintText(recurGetValue());
 }
-
 function recurHintText(r){
   if(!r||!r.enabled)return'';
   if(r.freq==='daily')return'每天自動建立新任務';
   if(r.freq==='monthly')return'每月同一天自動建立新任務';
   if(r.freq==='weekly'){
     if(!r.days||r.days.length===0)return'請選擇重複的星期';
-    const names=r.days.sort((a,b)=>a-b).map(d=>RECUR_DAYS[d]);
-    return`每週 ${names.join('、')} 自動建立新任務`;
+    return'每週 '+r.days.slice().sort((a,b)=>a-b).map(d=>RECUR_DAYS[d]).join('、')+' 自動建立新任務';
   }
   return'';
 }
-
-// Read recur config from modal DOM
 function recurGetValue(){
   const enabled=document.getElementById('recurEnabled')?.checked||false;
   if(!enabled)return{enabled:false};
-  const section=document.getElementById('recurSection');
-  // freq from active button
   const activeFreqBtn=document.querySelector('.recur-freq-btn.active');
   const freq=activeFreqBtn?RECUR_FREQS.find(f=>f.label===activeFreqBtn.textContent)?.id||'daily':'daily';
   const days=[];
   document.querySelectorAll('.recur-day-btn').forEach((b,i)=>{if(b.classList.contains('active'))days.push(i);});
   return{enabled,freq,days};
 }
-
-// Generate the next occurrence date string (yyyy-mm-dd) after a given date
-function recurNextDate(recur, fromDateStr){
+function recurNextDate(recur,fromDateStr){
   if(!recur||!recur.enabled)return null;
   const from=fromDateStr?new Date(fromDateStr+'T00:00:00'):new Date();
-  const next=new Date(from);
-  next.setDate(next.getDate()+1); // start from tomorrow
-
-  if(recur.freq==='daily') return fmtDate(next);
-
+  const next=new Date(from);next.setDate(next.getDate()+1);
+  if(recur.freq==='daily')return fmtDate(next);
   if(recur.freq==='weekly'){
     const days=(recur.days&&recur.days.length?recur.days:[]).sort((a,b)=>a-b);
     if(!days.length)return null;
-    for(let i=0;i<14;i++){
-      if(days.includes(next.getDay()))return fmtDate(next);
-      next.setDate(next.getDate()+1);
-    }
+    for(let i=0;i<14;i++){if(days.includes(next.getDay()))return fmtDate(next);next.setDate(next.getDate()+1);}
     return null;
   }
-
-  if(recur.freq==='monthly'){
-    const day=from.getDate();
-    next.setMonth(next.getMonth()+1);
-    next.setDate(day);
-    return fmtDate(next);
-  }
+  if(recur.freq==='monthly'){next.setMonth(next.getMonth()+1);return fmtDate(next);}
   return null;
 }
-
-function fmtDate(d){
-  return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-
-// When a recurring task is marked done, create the next occurrence
-function handleRecurOnDone(node, proj){
+function fmtDate(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function handleRecurOnDone(node,proj){
   if(!node.recur||!node.recur.enabled)return;
-  const nextDate=recurNextDate(node.recur, node.date);
+  const nextDate=recurNextDate(node.recur,node.date);
   if(!nextDate)return;
-  // Check if a sibling with same name & nextDate already exists (avoid duplicates)
   const siblings=findParentList(node.id)||proj.tasks;
   const dup=siblings.find(s=>s.name===node.name&&s.date===nextDate&&!s.done&&s.id!==node.id);
   if(dup)return;
   const newNode={id:nid(),name:node.name,date:nextDate,note:node.note||'',done:false,children:[],expanded:true,recur:node.recur};
-  siblings.push(newNode);
-  sortByDate(siblings);
-  showToast(`循環任務已建立：${nextDate}`);
+  siblings.push(newNode);sortByDate(siblings);
+  showToast('循環任務已建立：'+nextDate);
 }
 
 function showModal(html){
-  // 找最後一個 <div class="modal-actions"...>...</div> 區塊
-  // 用 lastIndexOf 找到最後一個 modal-actions 開頭位置，再截取
-  const openTag='<div class="modal-actions"';
-  const lastIdx=html.lastIndexOf(openTag);
+  // 將 modal-actions 從捲動區抽出，固定在底部
+  const actMatch=html.match(/<div class="modal-actions"[^>]*>([\s\S]*?)<\/div>\s*$/);
   let scrollHtml=html, actionsHtml='';
-  if(lastIdx>=0){
-    scrollHtml=html.slice(0,lastIdx);
-    actionsHtml=html.slice(lastIdx);
+  if(actMatch){
+    actionsHtml=actMatch[0];
+    scrollHtml=html.slice(0,html.lastIndexOf(actMatch[0]));
   }
   document.getElementById('modalContainer').innerHTML=`
     <div class="modal-backdrop" onclick="closeModal()">
