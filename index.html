@@ -367,13 +367,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
 .dp-cell.selected.today{background:var(--app-accent);color:var(--app-bg)}
 .dp-selected-label{font-size:13px;color:var(--app-text2);padding:6px 12px 8px;border-top:1px solid var(--app-border);text-align:center;min-height:32px}
 .dp-clear{background:none;border:none;color:var(--app-text3);font-size:13px;cursor:pointer;padding:8px 0 2px;font-family:inherit;display:block}
-/* 循環選項 */
-.dp-recur-row{display:flex;align-items:center;gap:6px;padding:8px 12px 10px;border-top:1px solid var(--app-border);flex-wrap:wrap}
-.dp-recur-label{font-size:12px;color:var(--app-text2);white-space:nowrap;flex-shrink:0}
-.dp-recur-btn{font-size:12px;padding:4px 10px;border-radius:999px;cursor:pointer;border:1.5px solid var(--app-border2);
-  background:transparent;color:var(--app-text2);font-family:inherit;transition:all .15s;white-space:nowrap}
-.dp-recur-btn.active{background:var(--app-accent);color:var(--app-bg);border-color:var(--app-accent);font-weight:600}
-.dp-recur-btn:active{opacity:.75}
 
 /* action sheet (long-press menu) */
 .action-sheet-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.28);z-index:200;display:flex;align-items:flex-end;justify-content:center}
@@ -948,8 +941,7 @@ function rN(node,proj,depth){
   const hasC=node.children&&node.children.length>0;
   const depthCls=`depth-${Math.min(depth,3)}`;
   const rowStyle=depth===0?`style="background:${proj.rowColor||DEFAULT_ROW}"`:'';
-  const recurBadge=node.recur?{week:'↻週',month:'↻月',year:'↻年'}[node.recur]||'':'';
-  const dateLabel=node.date?`<span class="task-date-label">${esc(node.date)}${recurBadge?` <span style="font-size:11px;opacity:.65">${recurBadge}</span>`:''}</span>`:'';
+  const dateLabel=node.date?`<span class="task-date-label">${esc(node.date)}</span>`:'';
   return `<div class="task-node ${depthCls}" id="nd-${node.id}">
     <div class="task-row" ${rowStyle}>
       <button class="expand-btn" style="${!hasC?'visibility:hidden':''}" onclick="toggleExpand('${node.id}','${proj.id}')"><i class="ti ti-chevron-${node.expanded?'down':'right'}"></i></button>
@@ -1128,26 +1120,6 @@ function toggleShowDone(pane){
 }
 
 /* ── calendar (Mon-first) ── */
-/* Helper: check if a recurring task falls on a given date string 'YYYY-MM-DD' */
-function recurMatchesDate(node, ds){
-  if(!node.date||!node.recur)return false;
-  const [oy,om,od]=node.date.split('-').map(Number);
-  const [ty,tm,td]=ds.split('-').map(Number);
-  const orig=new Date(oy,om-1,od);
-  const tgt=new Date(ty,tm-1,td);
-  if(tgt<=orig)return false; // don't repeat before or on original
-  if(node.recur==='week'){
-    const diff=Math.round((tgt-orig)/(86400000));
-    return diff>0&&diff%7===0;
-  }
-  if(node.recur==='month'){
-    return td===od&&(ty>oy||(ty===oy&&tm>om));
-  }
-  if(node.recur==='year'){
-    return tm===om&&td===od&&ty>oy;
-  }
-  return false;
-}
 function renderCalendar(){
   const wrap=document.getElementById('calContent');
   const year=state.calYear,month=state.calMonth,today=new Date();
@@ -1156,31 +1128,9 @@ function renderCalendar(){
   const startDow=(rawDow===0)?6:rawDow-1;
   const months=['一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月'];
   const allItems=[];state.projects.forEach(p=>collectAll(p.tasks,p,allItems));
-  // Build byDate including recurring items
-  const byDate={};
-  allItems.forEach(item=>{
-    if(!state.calFilter[item.proj.id])return;
-    if(item.node.date){
-      if(!byDate[item.node.date])byDate[item.node.date]=[];
-      byDate[item.node.date].push({...item,isRecurInstance:false});
-    }
-    // Expand recurrences for this calendar month
-    if(item.node.recur&&item.node.date){
-      for(let d=1;d<=lastDay.getDate();d++){
-        const ds=`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-        if(recurMatchesDate(item.node,ds)){
-          if(!byDate[ds])byDate[ds]=[];
-          // avoid duplicate if base date falls in same month
-          if(!byDate[ds].some(x=>x.node.id===item.node.id))
-            byDate[ds].push({...item,isRecurInstance:true});
-        }
-      }
-    }
-  });
+  const byDate={};allItems.forEach(item=>{if(item.node.date&&state.calFilter[item.proj.id]){if(!byDate[item.node.date])byDate[item.node.date]=[];byDate[item.node.date].push(item)}});
   const chips=state.projects.map(p=>`<div class="filter-chip${state.calFilter[p.id]?'':' off'}" style="background:${p.color}20;color:${p.color};border-color:${p.color}" onclick="toggleFilter('${p.id}')">${esc(p.name)}</div>`).join('');
   const total=Math.ceil((startDow+lastDay.getDate())/7)*7;
-  // Recur icon map
-  const recurIcon={week:'↻週',month:'↻月',year:'↻年'};
   let cells='';
   for(let i=0;i<total;i++){
     const d=i-startDow+1,inM=d>=1&&d<=lastDay.getDate();
@@ -1188,10 +1138,7 @@ function renderCalendar(){
     const isToday=inM&&today.getFullYear()===year&&today.getMonth()===month&&today.getDate()===d;
     const evts=ds&&byDate[ds]?byDate[ds]:[];
     const dropAttrs=inM?`ondragover="calDO(event,'${ds}')" ondragleave="calDL(event)" ondrop="calDrop(event,'${ds}')"` :'';
-    const evtHtml=evts.map(item=>{
-      const tag=item.node.recur?`<span style="font-size:9px;opacity:.7;margin-left:2px">${recurIcon[item.node.recur]||''}</span>`:'';
-      return`<div class="cal-event${item.node.done&&!item.isRecurInstance?' done':''}" style="background:${item.proj.color}22;color:${item.proj.color};border-left:2px solid ${item.proj.color};${item.isRecurInstance?'opacity:.75;':''}">${esc(item.node.name)}${tag}</div>`;
-    }).join('');
+    const evtHtml=evts.map(item=>`<div class="cal-event${item.node.done?' done':''}" style="background:${item.proj.color}22;color:${item.proj.color};border-left:2px solid ${item.proj.color}">${esc(item.node.name)}</div>`).join('');
     const clickAttr=inM?`onclick="openDayModal('${ds}')"`:'';
     cells+=`<div class="cal-day${!inM?' other-month':''}${isToday?' today':''}" style="${inM?'cursor:pointer':''}" ${dropAttrs} ${clickAttr}><div class="day-num">${inM?d:''}</div>${evtHtml}</div>`;
   }
@@ -1228,11 +1175,11 @@ function toggleFilter(p){state.calFilter[p]=!state.calFilter[p];saveToLS();rende
 */
 const _dp={};
 
-function dpRender(fid,initVal,initRecur){
+function dpRender(fid,initVal){
   const today=new Date();
   let sel=null;
   if(initVal){const p=initVal.split('-');if(p.length===3)sel={y:+p[0],m:+p[1]-1,d:+p[2]};}
-  _dp[fid]={fid,year:sel?sel.y:today.getFullYear(),month:sel?sel.m:today.getMonth(),selected:sel,recur:initRecur||null};
+  _dp[fid]={fid,year:sel?sel.y:today.getFullYear(),month:sel?sel.m:today.getMonth(),selected:sel};
   _dpDraw(fid);
 }
 function _dpDraw(fid){
@@ -1255,8 +1202,6 @@ function _dpDraw(fid){
     cells+=`<div class="${cls}" ${onclick}>${inM?d:''}</div>`;
   }
   const selLabel=s.selected?`${s.selected.y} 年 ${s.selected.m+1} 月 ${s.selected.d} 日`:'尚未選取日期';
-  const recurOpts=[{k:null,l:'不循環'},{k:'week',l:'每週'},{k:'month',l:'每月'},{k:'year',l:'每年'}];
-  const recurHtml=recurOpts.map(o=>`<button class="dp-recur-btn${s.recur===o.k?' active':''}" onclick="dpSetRecur('${fid}','${o.k||''}')">${o.l}</button>`).join('');
   el.innerHTML=`<div class="dp-wrap">
     <div class="dp-header">
       <button class="dp-nav" onclick="dpPrev('${fid}')"><i class="ti ti-chevron-left"></i></button>
@@ -1268,21 +1213,18 @@ function _dpDraw(fid){
       ${cells}
     </div>
     <div class="dp-selected-label">${selLabel}</div>
-    <div class="dp-recur-row"><span class="dp-recur-label">循環：</span>${recurHtml}</div>
   </div>`;
 }
 function dpPrev(fid){const s=_dp[fid];if(!s)return;s.month--;if(s.month<0){s.month=11;s.year--;}; _dpDraw(fid);}
 function dpNext(fid){const s=_dp[fid];if(!s)return;s.month++;if(s.month>11){s.month=0;s.year++;};_dpDraw(fid);}
 function dpPick(fid,y,m,d){const s=_dp[fid];if(!s)return;s.selected={y,m,d};_dpDraw(fid);}
-function dpClear(fid){const s=_dp[fid];if(!s)return;s.selected=null;s.recur=null;_dpDraw(fid);}
-function dpSetRecur(fid,val){const s=_dp[fid];if(!s)return;s.recur=val||null;_dpDraw(fid);}
+function dpClear(fid){const s=_dp[fid];if(!s)return;s.selected=null;_dpDraw(fid);}
 function dpGet(fid){
   const s=_dp[fid];
   if(!s||!s.selected)return'';
   const {y,m,d}=s.selected;
   return`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 }
-function dpGetRecur(fid){const s=_dp[fid];return s?s.recur||null:null;}
 
 /* ─── 單日任務彈出視窗 ─── */
 /* 目前開著的 day modal 日期，供 submitEditTask 用 */
@@ -1448,9 +1390,8 @@ function openAddTask(projId,parentId){
 function submitNewTask(projId,parentId){
   const name=document.getElementById('tName')?.value.trim();if(!name)return;
   const date=dpGet('tDate'),note=document.getElementById('tNote')?.value||'';
-  const recur=dpGetRecur('tDate');
   const p=getProj(projId);if(!p)return;
-  const node={id:nid(),name,date,note,done:false,children:[],expanded:true,recur:recur||null};
+  const node={id:nid(),name,date,note,done:false,children:[],expanded:true};
   if(parentId){const par=findNode(parentId,p.tasks);if(par){par.children.push(node);sortByDate(par.children);par.expanded=true}}
   else{p.tasks.push(node);sortByDate(p.tasks)}
   closeModal();saveAndRender();
@@ -1479,7 +1420,7 @@ function openEditTask(nodeId,projId){
         <button class="btn-primary" onclick="submitEditTask('${nodeId}','${projId}')">儲存</button>
       </div>
     </div>`);
-  setTimeout(()=>{dpRender('etDate',node.date||'',node.recur||null);document.getElementById('etName')?.focus();},50);
+  setTimeout(()=>{dpRender('etDate',node.date||'');document.getElementById('etName')?.focus();},50);
 }
 function submitEditTask(nodeId,projId){
   const p=getProj(projId);if(!p)return;
@@ -1487,7 +1428,6 @@ function submitEditTask(nodeId,projId){
   const name=document.getElementById('etName')?.value.trim();if(!name)return;
   node.name=name;
   node.date=dpGet('etDate');
-  node.recur=dpGetRecur('etDate')||null;
   node.note=document.getElementById('etNote')?.value||'';
   const siblings=findParentList(nodeId);if(siblings)sortByDate(siblings);
   closeModal();
